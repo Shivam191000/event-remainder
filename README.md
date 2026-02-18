@@ -18,7 +18,7 @@ A simple Java-based CLI project that helps users **add, view, and manage events*
 
 ## 🛠️ Tech Stack
 
-- **Language:** Java
+- **Language:** Java,HTML,CSS
 - **Platform:** Command Line Interface (CLI)
 - **Concepts Used:** OOP, ArrayLists, Date/Time, Conditional Logic
 
@@ -101,7 +101,7 @@ If you'd like to improve this app or add features, feel free to:
 
 ## 📬 Contact
 ```
-Made with ❤️ by Prachi Rathore
+Made with Shivam
 Open an issue or connect on GitHub for suggestions or improvements!
 
 ```
