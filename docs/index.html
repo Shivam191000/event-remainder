@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — EventReminder</title>
+  <meta name="description" content="Manage your events, track completions, and stay organized with EventReminder." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <!-- Animated background -->
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+  <div class="bg-grid"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🗓️</span>
+        <span class="logo-text">EventReminder</span>
+      </div>
+
+      <div class="header-center">
+        <div class="stat-chip" title="Total Events">
+          <span class="stat-num" id="total-count">0</span>
+          <span class="stat-label">Total</span>
+        </div>
+        <div class="stat-chip pending" title="Pending Events">
+          <span class="stat-num" id="pending-count">0</span>
+          <span class="stat-label">Pending</span>
+        </div>
+        <div class="stat-chip done" title="Completed Events">
+          <span class="stat-num" id="done-count">0</span>
+          <span class="stat-label">Done</span>
+        </div>
+        <div class="stat-chip important" title="Important Events">
+          <span class="stat-num" id="important-count">0</span>
+          <span class="stat-label">Important</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="user-pill" id="user-pill">
+          <span class="user-avatar" id="user-avatar">?</span>
+          <span class="user-name" id="user-name">User</span>
+          <span class="user-chevron">▾</span>
+          <div class="user-dropdown" id="user-dropdown">
+            <div class="dropdown-email" id="dropdown-email"></div>
+            <hr class="dropdown-divider" />
+            <button class="dropdown-item logout-item" onclick="logout()">🚪 Sign Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <main class="main-layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+      <!-- Add Event Form -->
+      <div class="sidebar-card">
+        <h2 class="sidebar-title"><span class="icon">✨</span> Add New Event</h2>
+        <form id="add-event-form" novalidate>
+
+          <div class="form-group">
+            <label for="event-title">Event Title</label>
+            <input type="text" id="event-title" placeholder="e.g. Team Meeting" autocomplete="off" required />
+            <span class="field-error" id="title-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label for="event-desc">Description</label>
+            <textarea id="event-desc" placeholder="Brief description..." rows="3" required></textarea>
+            <span class="field-error" id="desc-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label for="event-date">Date</label>
+            <input type="date" id="event-date" required />
+            <span class="field-error" id="date-error"></span>
+          </div>
+
+          <!-- Priority selector -->
+          <div class="form-group">
+            <label>Priority</label>
+            <div class="priority-selector">
+              <button type="button" class="priority-opt active" data-priority="normal" id="prio-normal">
+                <span>🔵</span> Normal
+              </button>
+              <button type="button" class="priority-opt" data-priority="important" id="prio-important">
+                <span>🔴</span> Important
+              </button>
+              <button type="button" class="priority-opt" data-priority="urgent" id="prio-urgent">
+                <span>⚡</span> Urgent
+              </button>
+            </div>
+          </div>
+
+          <!-- Category -->
+          <div class="form-group">
+            <label for="event-category">Category</label>
+            <select id="event-category">
+              <option value="general">📌 General</option>
+              <option value="work">💼 Work</option>
+              <option value="personal">🏠 Personal</option>
+              <option value="health">🏥 Health</option>
+              <option value="social">🎉 Social</option>
+              <option value="education">📚 Education</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="add-btn">
+            <span class="btn-icon">+</span> Add Event
+          </button>
+        </form>
+      </div>
+
+      <!-- Filter Card -->
+      <div class="sidebar-card filter-card">
+        <h2 class="sidebar-title"><span class="icon">🔍</span> Filter Events</h2>
+        <div class="filter-group">
+          <button class="filter-btn active" data-filter="all">📋 All Events</button>
+          <button class="filter-btn" data-filter="pending">⏳ Pending</button>
+          <button class="filter-btn" data-filter="completed">✅ Completed</button>
+          <button class="filter-btn" data-filter="important">🔴 Important</button>
+          <button class="filter-btn" data-filter="urgent">⚡ Urgent</button>
+          <button class="filter-btn" data-filter="today">📅 Due Today</button>
+          <button class="filter-btn" data-filter="overdue">🚨 Overdue</button>
+        </div>
+      </div>
+
+      <!-- Category Filter -->
+      <div class="sidebar-card filter-card">
+        <h2 class="sidebar-title"><span class="icon">🏷️</span> By Category</h2>
+        <div class="filter-group">
+          <button class="cat-btn active" data-cat="all">All</button>
+          <button class="cat-btn" data-cat="work">💼 Work</button>
+          <button class="cat-btn" data-cat="personal">🏠 Personal</button>
+          <button class="cat-btn" data-cat="health">🏥 Health</button>
+          <button class="cat-btn" data-cat="social">🎉 Social</button>
+          <button class="cat-btn" data-cat="education">📚 Education</button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Events Section -->
+    <section class="events-section">
+
+      <!-- Section Header -->
+      <div class="events-header">
+        <div class="events-header-left">
+          <h1 class="events-title" id="section-title">All Events</h1>
+          <span class="events-count" id="events-count">0 events</span>
+        </div>
+        <div class="events-header-right">
+          <div class="search-wrap">
+            <span class="search-icon">🔎</span>
+            <input type="text" id="search-input" placeholder="Search events..." />
+          </div>
+          <div class="view-toggle">
+            <button class="view-btn active" id="view-grid" title="Grid view" onclick="setView('grid')">⊞</button>
+            <button class="view-btn" id="view-list" title="List view" onclick="setView('list')">☰</button>
+          </div>
+          <button class="sort-btn" id="sort-btn" onclick="cycleSort()" title="Sort events">
+            <span id="sort-label">📅 Date</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Important Events Banner (shows when important events exist) -->
+      <div class="important-banner" id="important-banner" style="display:none;">
+        <div class="banner-icon">🔴</div>
+        <div class="banner-content">
+          <div class="banner-title">Important Events</div>
+          <div class="banner-events" id="banner-events"></div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>No events here</h3>
+        <p>Add your first event using the form!</p>
+      </div>
+
+      <!-- Events Grid -->
+      <div class="events-grid" id="events-grid"></div>
+
+    </section>
+  </main>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span class="toast-icon" id="toast-icon">✅</span>
+    <span class="toast-msg" id="toast-msg">Done!</span>
+    <button class="toast-close" onclick="document.getElementById('toast').classList.remove('show')">✕</button>
+  </div>
+
+  <!-- Delete Confirm Modal -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-icon">🗑️</div>
+      <h3 class="modal-title">Remove Event?</h3>
+      <p class="modal-desc" id="modal-event-name">This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+        <button class="btn btn-danger" id="modal-confirm">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Event Detail Modal -->
+  <div class="modal-overlay" id="detail-overlay">
+    <div class="modal detail-modal">
+      <button class="modal-close-btn" onclick="closeDetail()">✕</button>
+      <div id="detail-content"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
