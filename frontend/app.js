@@ -1,25 +1,50 @@
 // =============================================
-//   EVENT REMINDER SYSTEM — ENHANCED APP LOGIC
+//   EVENT REMINDER SYSTEM — API-POWERED APP
 // =============================================
+
+const API_BASE = '/api';
+
+// ---- API Helper ----
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem('er_token');
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+
+  // Token expired or invalid
+  if (res.status === 401) {
+    localStorage.removeItem('er_token');
+    localStorage.removeItem('er_user');
+    window.location.href = 'login.html';
+    return null;
+  }
+
+  return res.json();
+}
 
 // ---- Auth Guard ----
 const currentUser = JSON.parse(localStorage.getItem('er_user') || 'null');
-if (!currentUser) {
+const er_token = localStorage.getItem('er_token');
+if (!currentUser || !er_token) {
   window.location.href = 'login.html';
 }
 
 // ---- State ----
-let events = JSON.parse(localStorage.getItem('events') || '[]');
+let events = [];
 let currentFilter = 'all';
 let currentCat = 'all';
 let currentView = 'grid';
-let currentSort = 'date'; // 'date' | 'priority' | 'title' | 'status'
-let pendingDeleteIndex = null;
+let currentSort = 'date';
+let pendingDeleteId = null;
 let selectedPriority = 'normal';
 
 const SORT_CYCLE = ['date', 'priority', 'title', 'status'];
 const SORT_LABELS = { date: '📅 Date', priority: '🔴 Priority', title: '🔤 Title', status: '✅ Status' };
-
 const CAT_ICONS = { general: '📌', work: '💼', personal: '🏠', health: '🏥', social: '🎉', education: '📚' };
 const PRIORITY_CONFIG = {
   normal: { label: 'Normal', icon: '🔵', cls: 'normal' },
@@ -56,7 +81,6 @@ const catBtns = document.querySelectorAll('.cat-btn');
 const importantBanner = document.getElementById('important-banner');
 const bannerEvents = document.getElementById('banner-events');
 const userPill = document.getElementById('user-pill');
-const userDropdown = document.getElementById('user-dropdown');
 
 // ---- Init User UI ----
 function initUser() {
@@ -76,13 +100,9 @@ document.addEventListener('click', () => userPill.classList.remove('open'));
 
 // ---- Logout ----
 function logout() {
+  localStorage.removeItem('er_token');
   localStorage.removeItem('er_user');
   window.location.href = 'login.html';
-}
-
-// ---- Save ----
-function saveEvents() {
-  localStorage.setItem('events', JSON.stringify(events));
 }
 
 // ---- Toast ----
@@ -118,14 +138,12 @@ function isOverdue(e) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return new Date(e.date + 'T00:00:00') < today;
 }
-
 function isToday(e) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const d = new Date(e.date + 'T00:00:00');
-  return d.getTime() === today.getTime();
+  return new Date(e.date + 'T00:00:00').getTime() === today.getTime();
 }
 
-// ---- Stats ----
+// ---- Stats (from local events array) ----
 function updateStats() {
   const total = events.length;
   const done = events.filter(e => e.isCompleted).length;
@@ -140,14 +158,10 @@ function updateStats() {
 // ---- Important Banner ----
 function updateBanner() {
   const urgent = events.filter(e => !e.isCompleted && (e.priority === 'important' || e.priority === 'urgent'));
-  if (urgent.length === 0) {
-    importantBanner.style.display = 'none';
-    return;
-  }
+  if (urgent.length === 0) { importantBanner.style.display = 'none'; return; }
   importantBanner.style.display = 'flex';
-  bannerEvents.innerHTML = urgent.map((e, i) => {
-    const idx = events.indexOf(e);
-    return `<span class="banner-tag" onclick="openDetail(${idx})">${PRIORITY_CONFIG[e.priority].icon} ${escapeHtml(e.title)}</span>`;
+  bannerEvents.innerHTML = urgent.map(e => {
+    return `<span class="banner-tag" onclick="openDetail('${e.id}')">${PRIORITY_CONFIG[e.priority].icon} ${escapeHtml(e.title)}</span>`;
   }).join('');
 }
 
@@ -186,47 +200,37 @@ const FILTER_TITLES = {
   important: 'Important Events', urgent: 'Urgent Events',
   today: 'Due Today', overdue: 'Overdue Events',
 };
-
 function setFilter(filter) {
   currentFilter = filter;
   filterBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.filter === filter));
   sectionTitle.textContent = FILTER_TITLES[filter] || 'Events';
 }
 
-filterBtns.forEach(btn => btn.addEventListener('click', () => {
-  setFilter(btn.dataset.filter);
-  renderEvents();
-}));
-
+filterBtns.forEach(btn => btn.addEventListener('click', () => { setFilter(btn.dataset.filter); renderEvents(); }));
 catBtns.forEach(btn => btn.addEventListener('click', () => {
   currentCat = btn.dataset.cat;
   catBtns.forEach(b => b.classList.toggle('active', b.dataset.cat === currentCat));
   renderEvents();
 }));
-
 searchInput.addEventListener('input', renderEvents);
 
-// ---- Render ----
+// ---- Render Events (from local array — already filtered server side on fetch) ----
 function renderEvents() {
   const query = searchInput.value.trim().toLowerCase();
 
   let filtered = events.filter(e => {
-    // Status filter
     if (currentFilter === 'pending' && e.isCompleted) return false;
     if (currentFilter === 'completed' && !e.isCompleted) return false;
     if (currentFilter === 'important' && e.priority !== 'important') return false;
     if (currentFilter === 'urgent' && e.priority !== 'urgent') return false;
     if (currentFilter === 'today' && !isToday(e)) return false;
     if (currentFilter === 'overdue' && !isOverdue(e)) return false;
-    // Category filter
     if (currentCat !== 'all' && e.category !== currentCat) return false;
-    // Search
     if (query && !e.title.toLowerCase().includes(query) && !e.description.toLowerCase().includes(query)) return false;
     return true;
   });
 
   filtered = getSortedEvents(filtered);
-
   eventsGrid.innerHTML = '';
   eventsCount.textContent = `${filtered.length} event${filtered.length !== 1 ? 's' : ''}`;
 
@@ -234,14 +238,13 @@ function renderEvents() {
     emptyState.classList.add('visible');
     const icons = { completed: '🏆', overdue: '🚨', today: '📅', important: '🔴', urgent: '⚡' };
     emptyState.querySelector('.empty-icon').textContent = icons[currentFilter] || (query ? '🔍' : '📭');
-    emptyState.querySelector('h3').textContent = query ? 'No matching events' : (FILTER_TITLES[currentFilter] ? `No ${FILTER_TITLES[currentFilter].toLowerCase()}` : 'No events yet');
-    emptyState.querySelector('p').textContent = query ? 'Try a different search term.' : (currentFilter === 'all' ? 'Add your first event using the form!' : '');
+    emptyState.querySelector('h3').textContent = query ? 'No matching events'
+      : (FILTER_TITLES[currentFilter] ? `No ${FILTER_TITLES[currentFilter].toLowerCase()}` : 'No events yet');
+    emptyState.querySelector('p').textContent = query ? 'Try a different search term.'
+      : (currentFilter === 'all' ? 'Add your first event using the form!' : '');
   } else {
     emptyState.classList.remove('visible');
-    filtered.forEach(event => {
-      const originalIdx = events.indexOf(event);
-      eventsGrid.appendChild(createEventCard(event, originalIdx));
-    });
+    filtered.forEach(event => eventsGrid.appendChild(createEventCard(event)));
   }
 
   updateStats();
@@ -249,18 +252,18 @@ function renderEvents() {
 }
 
 // ---- Create Card ----
-function createEventCard(event, index) {
+function createEventCard(event) {
   const card = document.createElement('div');
   const prio = event.priority || 'normal';
   card.className = `event-card priority-${prio}${event.isCompleted ? ' completed' : ''}`;
-  card.dataset.index = index;
+  card.dataset.id = event.id;
 
   const dateStatus = getDateStatus(event.date);
   const cat = event.category || 'general';
   const catIcon = CAT_ICONS[cat] || '📌';
   const prioConf = PRIORITY_CONFIG[prio];
-
-  const overdueWarning = isOverdue(event) ? `<span class="status-badge" style="background:rgba(245,71,110,0.12);color:#f5476e;border-color:rgba(245,71,110,0.25);">🚨 Overdue</span>` : '';
+  const overdueWarning = isOverdue(event)
+    ? `<span class="status-badge" style="background:rgba(245,71,110,0.12);color:#f5476e;border-color:rgba(245,71,110,0.25);">🚨 Overdue</span>` : '';
 
   card.innerHTML = `
     <div class="card-body">
@@ -284,15 +287,14 @@ function createEventCard(event, index) {
     <div class="card-actions">
       ${event.isCompleted
       ? `<button class="action-btn complete-btn done-btn" disabled><span>✓</span> Done</button>`
-      : `<button class="action-btn complete-btn" onclick="event.stopPropagation();markComplete(${index})"><span>✓</span> Mark Done</button>`
+      : `<button class="action-btn complete-btn" onclick="event.stopPropagation();markComplete('${event.id}')"><span>✓</span> Mark Done</button>`
     }
-      <button class="action-btn" onclick="event.stopPropagation();openDetail(${index})" style="color:var(--accent-2);border-color:rgba(91,138,245,0.3);">👁 View</button>
-      <button class="action-btn remove-btn" onclick="event.stopPropagation();confirmRemove(${index})"><span>🗑</span> Remove</button>
+      <button class="action-btn" onclick="event.stopPropagation();openDetail('${event.id}')" style="color:var(--accent-2);border-color:rgba(91,138,245,0.3);">👁 View</button>
+      <button class="action-btn remove-btn" onclick="event.stopPropagation();confirmRemove('${event.id}')"><span>🗑</span> Remove</button>
     </div>
   `;
 
-  // Click card to open detail
-  card.addEventListener('click', () => openDetail(index));
+  card.addEventListener('click', () => openDetail(event.id));
   return card;
 }
 
@@ -313,10 +315,9 @@ document.querySelectorAll('.priority-opt').forEach(btn => {
 });
 
 // ---- Add Event ----
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
   let valid = true;
-
   const title = titleInput.value.trim();
   const desc = descInput.value.trim();
   const date = dateInput.value;
@@ -326,75 +327,106 @@ form.addEventListener('submit', (e) => {
   document.getElementById('desc-error').textContent = '';
   document.getElementById('date-error').textContent = '';
 
-  if (!title) {
-    document.getElementById('title-error').textContent = 'Title is required.';
-    titleInput.focus(); valid = false;
-  }
-  if (!desc) {
-    document.getElementById('desc-error').textContent = 'Description is required.';
-    if (valid) descInput.focus(); valid = false;
-  }
-  if (!date) {
-    document.getElementById('date-error').textContent = 'Please select a date.';
-    if (valid) dateInput.focus(); valid = false;
-  }
+  if (!title) { document.getElementById('title-error').textContent = 'Title is required.'; titleInput.focus(); valid = false; }
+  if (!desc) { document.getElementById('desc-error').textContent = 'Description is required.'; if (valid) descInput.focus(); valid = false; }
+  if (!date) { document.getElementById('date-error').textContent = 'Please select a date.'; if (valid) dateInput.focus(); valid = false; }
   if (!valid) return;
 
-  events.push({ title, description: desc, date, category, priority: selectedPriority, isCompleted: false });
-  saveEvents();
-  form.reset();
-  setDefaultDate();
-  // Reset priority
-  selectedPriority = 'normal';
-  document.querySelectorAll('.priority-opt').forEach(b => b.classList.remove('active'));
-  document.getElementById('prio-normal').classList.add('active');
+  // Disable submit button
+  const addBtn = document.getElementById('add-btn');
+  addBtn.disabled = true;
+  addBtn.textContent = 'Adding...';
 
-  showToast(`Event "${title}" added! 🎉`, 'success');
-  setFilter('all');
-  renderEvents();
+  try {
+    const data = await apiFetch('/events', {
+      method: 'POST',
+      body: JSON.stringify({ title, description: desc, date, category, priority: selectedPriority }),
+    });
+    if (data && data.success) {
+      events.push(data.event);
+      form.reset();
+      setDefaultDate();
+      selectedPriority = 'normal';
+      document.querySelectorAll('.priority-opt').forEach(b => b.classList.remove('active'));
+      document.getElementById('prio-normal').classList.add('active');
+      showToast(`Event "${title}" added! 🎉`, 'success');
+      setFilter('all');
+      renderEvents();
+    } else {
+      showToast(data?.message || 'Failed to add event.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error. Please check the server.', 'error');
+  } finally {
+    addBtn.disabled = false;
+    addBtn.innerHTML = '<span class="btn-icon">+</span> Add Event';
+  }
 });
 
 // ---- Mark Complete ----
-function markComplete(index) {
-  if (events[index] && !events[index].isCompleted) {
-    events[index].isCompleted = true;
-    saveEvents();
-    showToast(`"${events[index].title}" marked as completed! ✨`, 'success');
-    renderEvents();
+async function markComplete(id) {
+  const event = events.find(e => e.id === id);
+  if (!event || event.isCompleted) return;
+
+  try {
+    const data = await apiFetch(`/events/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ isCompleted: true }),
+    });
+    if (data && data.success) {
+      const idx = events.findIndex(e => e.id === id);
+      if (idx !== -1) events[idx] = data.event;
+      showToast(`"${data.event.title}" marked as completed! ✨`, 'success');
+      renderEvents();
+    } else {
+      showToast(data?.message || 'Failed to update event.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error. Please check the server.', 'error');
   }
 }
 
 // ---- Remove ----
-function confirmRemove(index) {
-  pendingDeleteIndex = index;
-  modalEventName.textContent = `"${events[index]?.title || 'this event'}" will be permanently deleted.`;
+function confirmRemove(id) {
+  const event = events.find(e => e.id === id);
+  if (!event) return;
+  pendingDeleteId = id;
+  modalEventName.textContent = `"${event.title}" will be permanently deleted.`;
   modalOverlay.classList.add('open');
 }
 
-modalConfirm.addEventListener('click', () => {
-  if (pendingDeleteIndex !== null) {
-    const name = events[pendingDeleteIndex]?.title;
-    events.splice(pendingDeleteIndex, 1);
-    saveEvents();
-    showToast(`"${name}" removed.`, 'info');
-    renderEvents();
-    pendingDeleteIndex = null;
-  }
+modalConfirm.addEventListener('click', async () => {
+  if (!pendingDeleteId) return;
+  const id = pendingDeleteId;
+  const event = events.find(e => e.id === id);
+  pendingDeleteId = null;
   modalOverlay.classList.remove('open');
+
+  try {
+    const data = await apiFetch(`/events/${id}`, { method: 'DELETE' });
+    if (data && data.success) {
+      events = events.filter(e => e.id !== id);
+      showToast(`"${event?.title}" removed.`, 'info');
+      renderEvents();
+    } else {
+      showToast(data?.message || 'Failed to delete event.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error. Please check the server.', 'error');
+  }
 });
 
 modalCancel.addEventListener('click', () => {
-  pendingDeleteIndex = null;
+  pendingDeleteId = null;
   modalOverlay.classList.remove('open');
 });
-
 modalOverlay.addEventListener('click', (e) => {
-  if (e.target === modalOverlay) { pendingDeleteIndex = null; modalOverlay.classList.remove('open'); }
+  if (e.target === modalOverlay) { pendingDeleteId = null; modalOverlay.classList.remove('open'); }
 });
 
 // ---- Detail Modal ----
-function openDetail(index) {
-  const e = events[index];
+function openDetail(id) {
+  const e = events.find(ev => ev.id === id);
   if (!e) return;
   const prio = e.priority || 'normal';
   const prioConf = PRIORITY_CONFIG[prio];
@@ -417,34 +449,21 @@ function openDetail(index) {
     </div>
     <p class="detail-desc">${escapeHtml(e.description)}</p>
     <div class="detail-actions">
-      ${!e.isCompleted ? `<button class="btn btn-primary" onclick="markComplete(${index});closeDetail()"><span>✓</span> Mark Done</button>` : ''}
+      ${!e.isCompleted ? `<button class="btn btn-primary" onclick="markComplete('${id}');closeDetail()"><span>✓</span> Mark Done</button>` : ''}
       <button class="btn btn-ghost" onclick="closeDetail()">Close</button>
-      <button class="btn btn-danger" onclick="closeDetail();confirmRemove(${index})">🗑 Remove</button>
+      <button class="btn btn-danger" onclick="closeDetail();confirmRemove('${id}')">🗑 Remove</button>
     </div>
   `;
   detailOverlay.classList.add('open');
 }
 
-function closeDetail() {
-  detailOverlay.classList.remove('open');
-}
+function closeDetail() { detailOverlay.classList.remove('open'); }
+detailOverlay.addEventListener('click', (e) => { if (e.target === detailOverlay) closeDetail(); });
 
-detailOverlay.addEventListener('click', (e) => {
-  if (e.target === detailOverlay) closeDetail();
-});
-
-// ---- Keyboard shortcuts ----
+// ---- Keyboard Shortcuts ----
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    modalOverlay.classList.remove('open');
-    closeDetail();
-    pendingDeleteIndex = null;
-  }
-  // Ctrl+F → focus search
-  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-    e.preventDefault();
-    searchInput.focus();
-  }
+  if (e.key === 'Escape') { modalOverlay.classList.remove('open'); closeDetail(); pendingDeleteId = null; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); searchInput.focus(); }
 });
 
 // ---- Default date ----
@@ -456,34 +475,82 @@ function setDefaultDate() {
   dateInput.value = `${yyyy}-${mm}-${dd}`;
 }
 
-// ---- Seed Sample Events ----
-function seedSampleEvents() {
-  if (events.length === 0) {
-    const today = new Date();
-    const fmt = (d) => {
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-    const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-    const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    const in3 = new Date(today); in3.setDate(today.getDate() + 3);
+// ---- Seed Sample Events for Demo Account ----
+async function seedSampleEventsIfNeeded() {
+  if (events.length > 0) return;
+  if (currentUser?.email !== 'demo@eventreminder.app') return;
 
-    events = [
-      { title: 'Team Stand-up Meeting', description: 'Daily sync with the engineering team to discuss progress, blockers, and sprint goals.', date: fmt(today), category: 'work', priority: 'normal', isCompleted: false },
-      { title: 'Project Deadline 🚨', description: 'Submit the final project report and presentation slides to the manager before EOD.', date: fmt(tomorrow), category: 'work', priority: 'urgent', isCompleted: false },
-      { title: 'Doctor Appointment', description: 'Annual health checkup at City Medical Center, Block B, Room 204. Bring insurance card.', date: fmt(nextWeek), category: 'health', priority: 'important', isCompleted: false },
-      { title: 'Code Review Session', description: 'Review pull requests for the new authentication module with the team.', date: fmt(yesterday), category: 'work', priority: 'normal', isCompleted: true },
-      { title: 'Birthday Party 🎉', description: 'Sarah\'s surprise birthday party at The Grand Venue. Bring a gift!', date: fmt(in3), category: 'social', priority: 'important', isCompleted: false },
-    ];
-    saveEvents();
+  const today = new Date();
+  const fmt = (d) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const in3 = new Date(today); in3.setDate(today.getDate() + 3);
+
+  const samples = [
+    { title: 'Team Stand-up Meeting', description: 'Daily sync with the engineering team.', date: fmt(today), category: 'work', priority: 'normal' },
+    { title: 'Project Deadline 🚨', description: 'Submit the final project report before EOD.', date: fmt(tomorrow), category: 'work', priority: 'urgent' },
+    { title: 'Doctor Appointment', description: 'Annual health checkup. Bring insurance card.', date: fmt(nextWeek), category: 'health', priority: 'important' },
+    { title: 'Birthday Party 🎉', description: "Sarah's surprise party at The Grand Venue.", date: fmt(in3), category: 'social', priority: 'important' },
+  ];
+
+  for (const s of samples) {
+    const data = await apiFetch('/events', { method: 'POST', body: JSON.stringify(s) });
+    if (data && data.success) events.push(data.event);
+  }
+  // Mark the 3rd as completed to show the "Done" state
+  const review = await apiFetch('/events', {
+    method: 'POST', body: JSON.stringify({
+      title: 'Code Review Session', description: 'Review pull requests for the new auth module.',
+      date: fmt(yesterday), category: 'work', priority: 'normal'
+    })
+  });
+  if (review && review.success) {
+    const done = await apiFetch(`/events/${review.event.id}`, { method: 'PUT', body: JSON.stringify({ isCompleted: true }) });
+    if (done && done.success) events.push(done.event);
   }
 }
 
+// ---- Show loading overlay while fetching ----
+function showPageLoader() {
+  emptyState.classList.remove('visible');
+  eventsGrid.innerHTML = `
+    <div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem;gap:1rem;color:var(--text-muted);">
+      <div style="width:40px;height:40px;border:3px solid rgba(124,110,245,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      <span>Loading your events...</span>
+    </div>
+  `;
+}
+
 // ---- Init ----
-initUser();
-setDefaultDate();
-seedSampleEvents();
-renderEvents();
+async function init() {
+  initUser();
+  setDefaultDate();
+  showPageLoader();
+
+  try {
+    const data = await apiFetch('/events');
+    if (data && data.success) {
+      events = data.events;
+      await seedSampleEventsIfNeeded();
+      renderEvents();
+    } else {
+      showToast('Failed to load events from server.', 'error');
+      renderEvents();
+    }
+  } catch (err) {
+    showToast('Cannot connect to server. Please restart the backend.', 'error');
+    eventsGrid.innerHTML = '';
+    emptyState.classList.add('visible');
+    emptyState.querySelector('.empty-icon').textContent = '🔌';
+    emptyState.querySelector('h3').textContent = 'Server not reachable';
+    emptyState.querySelector('p').textContent = 'Run: cd backend && node server.js';
+  }
+}
+
+init();

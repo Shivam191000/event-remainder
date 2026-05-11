@@ -673,18 +673,25 @@
         </div>
 
         <div class="login-footer">
-            🔒 Your data is stored locally on your device
+            🔐 Secured with JWT · Powered by Express + SQLite
         </div>
     </div>
 
     <script>
-        // ---- Check if already logged in ----
-        if (localStorage.getItem('er_user')) {
+        // =============================================
+        //  AUTH — API-backed Login & Registration
+        // =============================================
+
+        const API_BASE = '/api';
+
+        // ---- Redirect if already logged in ----
+        if (localStorage.getItem('er_token') && localStorage.getItem('er_user')) {
             window.location.href = 'index.html';
         }
 
         let activeTab = 'login';
 
+        // ---- Tab Switching ----
         function switchTab(tab) {
             activeTab = tab;
             document.getElementById('form-login').classList.toggle('active', tab === 'login');
@@ -695,12 +702,14 @@
             clearAlert();
         }
 
+        // ---- Password Toggle ----
         function togglePw(id, btn) {
             const input = document.getElementById(id);
             if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
             else { input.type = 'password'; btn.textContent = '👁️'; }
         }
 
+        // ---- Password Strength ----
         function checkStrength(val) {
             const el = document.getElementById('pw-strength');
             const fill = document.getElementById('pw-fill');
@@ -726,6 +735,7 @@
             label.style.color = lvl.color;
         }
 
+        // ---- Alert ----
         function showAlert(msg, type) {
             const el = document.getElementById('auth-alert');
             el.className = `auth-alert ${type}`;
@@ -737,9 +747,9 @@
             el.className = 'auth-alert';
         }
 
+        // ---- Loading State ----
         function setLoading(btnId, loading) {
-            const btn = document.getElementById(btnId);
-            btn.classList.toggle('loading', loading);
+            document.getElementById(btnId).classList.toggle('loading', loading);
         }
 
         function clearErrors() {
@@ -747,10 +757,28 @@
             document.querySelectorAll('input').forEach(e => e.classList.remove('error'));
         }
 
-        // ---- Login ----
-        document.getElementById('form-login').addEventListener('submit', (e) => {
+        // ---- API Helper ----
+        async function apiPost(endpoint, body) {
+            const res = await fetch(`${API_BASE}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            return { ok: res.ok, status: res.status, data };
+        }
+
+        // ---- Save Auth Session ----
+        function saveSession(token, user) {
+            localStorage.setItem('er_token', token);
+            localStorage.setItem('er_user', JSON.stringify({ name: user.name, email: user.email, id: user.id }));
+        }
+
+        // ---- LOGIN ----
+        document.getElementById('form-login').addEventListener('submit', async (e) => {
             e.preventDefault();
             clearErrors(); clearAlert();
+
             const email = document.getElementById('login-email').value.trim();
             const pw = document.getElementById('login-password').value;
             let valid = true;
@@ -768,24 +796,27 @@
             if (!valid) return;
 
             setLoading('login-btn', true);
-            setTimeout(() => {
-                const users = JSON.parse(localStorage.getItem('er_users') || '[]');
-                const user = users.find(u => u.email === email && u.password === btoa(pw));
-                setLoading('login-btn', false);
-                if (user) {
-                    localStorage.setItem('er_user', JSON.stringify({ name: user.name, email: user.email }));
+            try {
+                const { ok, data } = await apiPost('/auth/login', { email, password: pw });
+                if (ok && data.success) {
+                    saveSession(data.token, data.user);
                     showAlert('Login successful! Redirecting...', 'success');
-                    setTimeout(() => window.location.href = 'index.html', 800);
+                    setTimeout(() => window.location.href = 'index.html', 700);
                 } else {
-                    showAlert('Invalid email or password.', 'error');
+                    showAlert(data.message || 'Login failed. Please try again.', 'error');
                 }
-            }, 900);
+            } catch (err) {
+                showAlert('Cannot reach server. Make sure the backend is running.', 'error');
+            } finally {
+                setLoading('login-btn', false);
+            }
         });
 
-        // ---- Register ----
-        document.getElementById('form-register').addEventListener('submit', (e) => {
+        // ---- REGISTER ----
+        document.getElementById('form-register').addEventListener('submit', async (e) => {
             e.preventDefault();
             clearErrors(); clearAlert();
+
             const name = document.getElementById('reg-name').value.trim();
             const email = document.getElementById('reg-email').value.trim();
             const pw = document.getElementById('reg-password').value;
@@ -809,27 +840,48 @@
             if (!valid) return;
 
             setLoading('register-btn', true);
-            setTimeout(() => {
-                const users = JSON.parse(localStorage.getItem('er_users') || '[]');
-                if (users.find(u => u.email === email)) {
-                    setLoading('register-btn', false);
-                    showAlert('An account with this email already exists.', 'error');
-                    return;
+            try {
+                const { ok, data } = await apiPost('/auth/register', { name, email, password: pw });
+                if (ok && data.success) {
+                    saveSession(data.token, data.user);
+                    showAlert('Account created! Redirecting...', 'success');
+                    setTimeout(() => window.location.href = 'index.html', 700);
+                } else {
+                    showAlert(data.message || 'Registration failed. Please try again.', 'error');
                 }
-                users.push({ name, email, password: btoa(pw) });
-                localStorage.setItem('er_users', JSON.stringify(users));
-                localStorage.setItem('er_user', JSON.stringify({ name, email }));
+            } catch (err) {
+                showAlert('Cannot reach server. Make sure the backend is running.', 'error');
+            } finally {
                 setLoading('register-btn', false);
-                showAlert('Account created! Redirecting...', 'success');
-                setTimeout(() => window.location.href = 'index.html', 800);
-            }, 900);
+            }
         });
 
-        // ---- Demo Login ----
-        function demoLogin() {
-            localStorage.setItem('er_user', JSON.stringify({ name: 'Demo User', email: 'demo@eventreminder.app' }));
-            showAlert('Entering demo mode...', 'success');
-            setTimeout(() => window.location.href = 'index.html', 600);
+        // ---- DEMO LOGIN ----
+        async function demoLogin() {
+            clearAlert();
+            showAlert('Setting up demo account...', 'success');
+            try {
+                // Try to register demo account (will fail silently if exists)
+                await apiPost('/auth/register', {
+                    name: 'Demo User',
+                    email: 'demo@eventreminder.app',
+                    password: 'Demo1234!'
+                });
+                // Now login
+                const { ok, data } = await apiPost('/auth/login', {
+                    email: 'demo@eventreminder.app',
+                    password: 'Demo1234!'
+                });
+                if (ok && data.success) {
+                    saveSession(data.token, data.user);
+                    showAlert('Entering demo mode... 🚀', 'success');
+                    setTimeout(() => window.location.href = 'index.html', 600);
+                } else {
+                    showAlert('Demo login failed. Please try again.', 'error');
+                }
+            } catch (err) {
+                showAlert('Cannot reach server. Make sure the backend is running.', 'error');
+            }
         }
     </script>
 </body>
