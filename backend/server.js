@@ -6,6 +6,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const { initDb } = require('./db');
 
 const app = express();
@@ -39,7 +40,11 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---- Serve Frontend Static Files ----
-const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
+// Local dev: server.js is in /backend, frontend is at /frontend (one level up)
+// Azure deploy: server.js is at root, frontend is at /frontend (same level)
+const FRONTEND_DIR = fs.existsSync(path.join(__dirname, 'frontend'))
+    ? path.join(__dirname, 'frontend')
+    : path.join(__dirname, '..', 'frontend');
 app.use(express.static(FRONTEND_DIR));
 
 // ---- Global Error Handler ----

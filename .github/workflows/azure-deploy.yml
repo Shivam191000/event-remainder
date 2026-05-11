@@ -33,19 +33,36 @@ jobs:
 
       - name: Create deployment package
         run: |
-          # Create a zip of what we need: backend + frontend
-          mkdir -p deployment
-          cp -r backend deployment/
-          cp -r frontend deployment/
-          cp .npmrc deployment/ 2>/dev/null || true
-          # Remove node_modules from zip (Azure will install on startup)
-          rm -rf deployment/backend/node_modules
-          # Remove SQLite DB (Azure uses ephemeral storage, we'll let it create fresh)
-          rm -f deployment/backend/events.db
-          cd deployment
-          zip -r ../deploy.zip . -x "*.git*"
+          # Azure's Oryx builder needs package.json at the ROOT of the zip.
+          # Structure: server.js, package.json, db.js, routes/, middleware/ at root
+          #            frontend/ as a sibling directory
+
+          mkdir -p deploy_pkg/routes
+          mkdir -p deploy_pkg/middleware
+          mkdir -p deploy_pkg/frontend
+
+          # Copy backend files to root of deploy package
+          cp backend/server.js deploy_pkg/
+          cp backend/db.js deploy_pkg/
+          cp backend/package.json deploy_pkg/
+          cp backend/package-lock.json deploy_pkg/
+          cp .npmrc deploy_pkg/ 2>/dev/null || true
+          cp backend/routes/*.js deploy_pkg/routes/
+          cp backend/middleware/*.js deploy_pkg/middleware/
+
+          # Copy frontend as sibling
+          cp -r frontend/. deploy_pkg/frontend/
+
+          # Remove events.db if present (fresh start on Azure)
+          rm -f deploy_pkg/events.db
+
+          # Zip it up
+          cd deploy_pkg
+          zip -r ../deploy.zip .
           cd ..
-          echo "Deployment package created: $(du -sh deploy.zip)"
+          echo "Package size: $(du -sh deploy.zip)"
+          echo "Package contents:"
+          unzip -l deploy.zip | head -30
 
       - name: Azure Login
         uses: azure/login@v2
@@ -62,5 +79,7 @@ jobs:
         run: |
           echo "Deployment complete!"
           echo "App URL: https://${{ env.WEBAPP_NAME }}.azurewebsites.net"
-          sleep 30
-          curl -sf "https://${{ env.WEBAPP_NAME }}.azurewebsites.net/api/health" && echo "Health check PASSED" || echo "Health check pending (app may still be starting)"
+          sleep 45
+          curl -sf "https://${{ env.WEBAPP_NAME }}.azurewebsites.net/api/health" \
+            && echo "Health check PASSED" \
+            || echo "App still starting — check Azure portal in a minute"
